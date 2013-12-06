@@ -101,16 +101,8 @@ class dealer(marketParticipant):
 class book:
     def __init__(self):
         self.trades=[]
-    def addTrade(self,trade):
-        self.trades.append(trade)
-
-
-
-class trade:
-    def __init__(self,size,price,time,partnerID):
-        self.price=price
-        self.size=size
-        self.time=time
+    def addTrade(self,size,price,time,partnerID):
+        self.trades.append([size,price,time,partnerID])
 
     
     
