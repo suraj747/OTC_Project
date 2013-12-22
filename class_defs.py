@@ -117,57 +117,103 @@ class dealer(marketParticipant):
     def make_trade(self,counterparty,price,size,time):
         self.tradeBook.addTrade(size,price,time,counterparty.ID)
         counterparty.tradeBook.addTrade(-size,price,time,self.ID)
+    def place_LO(self,bid_ask,price,time,volume):
+        self.LOM.place_lim_order(bid_ask,price,time,volume,self)
 
+#NeedEdit this is a special type of dealer
+class sinkDealer(marketParticipant):
+    def __init__(self,limitOrderMkt):
+        marketParticipant.__init__(self,False)
+        custSpread=2
+        self.LOM=limitOrderMkt
+        #customer spreads are same as market spreads plus small amount
+        self.cBid=99
+        self.cAsk=101
+    def make_trade(self,counterparty,price,size,time):
+        self.tradeBook.addTrade(size,price,time,counterparty.ID)
+        counterparty.tradeBook.addTrade(-size,price,time,self.ID)
+    def place_LO(self,bid_ask,price,time,volume):
+        self.LOM.place_lim_order(bid_ask,price,time,volume,self)
 
 class limit_market():
     def __init__(self):
         self.dealers=[]
-        self.bids=[[98,0,1000,"d2",0]]
-        self.asks=[[102,0,1000,"d2",0]]
+        self.bids=[]
+        self.asks=[]
         self.current_orderID=0
     def add_dealers(self,dealers):
         self.dealers=dealers
     def place_lim_order(self,bid_ask,price,time,volume,dealer):
         self.current_orderID=self.current_orderID+1
         if bid_ask=="bid":
-            for i in range(len(self.bids)):
-                if price>self.bids[i][0]:
-                    self.bids.insert(i,[price,time,volume,dealer.ID,self.current_orderID])
-                    break
-                elif price==self.bids[i][0]:
-                    if i+1==len(self.bids):
-                        self.bids.append([price,time,volume,dealer.ID,self.current_orderID])
-                        break
-                    elif self.bids[i+1][0]<price:
-                        self.bids.insert(i+1,[price,time,volume,dealer.ID,self.current_orderID])
-                        break
-                    else:
-                        pass
-                elif i+1==len(self.bids):
-                    self.bids.append([price,time,volume,dealer.ID,self.current_orderID])
-                    break
-
-        elif bid_ask=="ask":
-            for i in range(len(self.asks)):
-                if price<self.asks[i][0]:
-                    self.asks.insert(i,[price,time,volume,dealer.ID,self.current_orderID])
-                    break
-                elif price==self.asks[i][0]:
-                    if i+1==len(self.asks):
-                        self.asks.append([price,time,volume,dealer.ID,self.current_orderID])
-                    elif self.asks[i+1][0]>price:
+            if len(self.bids)==0:
+                self.bids.append([price,time,volume,dealer.ID,self.current_orderID])
+            else:
+                for i in range(len(self.bids)):
+                    if price>self.bids[i][0]:
                         self.bids.insert(i,[price,time,volume,dealer.ID,self.current_orderID])
                         break
-                    else:
-                        pass
-                elif i+1==len(self.asks):
-                    self.asks.append([price,time,volume,dealer.ID,self.current_orderID])
+                    elif price==self.bids[i][0]:
+                        if i+1==len(self.bids):
+                            self.bids.append([price,time,volume,dealer.ID,self.current_orderID])
+                            break
+                        elif self.bids[i+1][0]<price:
+                            self.bids.insert(i+1,[price,time,volume,dealer.ID,self.current_orderID])
+                            break
+                        else:
+                            pass
+                    elif i+1==len(self.bids):
+                        self.bids.append([price,time,volume,dealer.ID,self.current_orderID])
+                        break
+
+        elif bid_ask=="ask":
+            if len(self.asks)==0:
+                self.asks.append([price,time,volume,dealer.ID,self.current_orderID])
+            else:
+                for i in range(len(self.asks)):
+                    if price<self.asks[i][0]:
+                        self.asks.insert(i,[price,time,volume,dealer.ID,self.current_orderID])
+                        break
+                    elif price==self.asks[i][0]:
+                        if i+1==len(self.asks):
+                            self.asks.append([price,time,volume,dealer.ID,self.current_orderID])
+                            break
+                        elif self.asks[i+1][0]>price:
+                            self.asks.insert(i+1,[price,time,volume,dealer.ID,self.current_orderID])
+                            break
+                        else:
+                            pass
+                    elif i+1==len(self.asks):
+                        self.asks.append([price,time,volume,dealer.ID,self.current_orderID])
+                        break
+
+    def decrease_volume(bid_or_ask,orderID,volume):
+        if bid_or_ask=="bid":
+            for order in EBS.bids:
+                if order[4]==orderID:
+                    order[2]=order[2]-volume
+                    if order[2]==0:
+                        
+                    break
+                else:
+                    pass
+        elif bid_or_ask=="ask":
+            for order in EBS.asks:
+                if order[4]==orderID:
+                    order[2]=order[2]-volume
+                    break
+                else:
+                    pass
+
+
+
+        elif bid_or_ask=="ask":
+
 
     def find_orders(self,buy_sell,volume):
         orders=[]
         unfilled=volume
         if buy_sell=="buy":
-
             for entry in self.asks:
                 depth=entry[2]
                 if depth>=unfilled:
@@ -175,10 +221,10 @@ class limit_market():
                     entry[2]=entry[2]-unfilled
                     unfilled=0
                     break
-                elif depth<=unfilled:
+                elif depth<unfilled:
                     orders.append(entry[4])
-                    unfilled=unfilled-entry[4]
-                    entry[4]=0
+                    unfilled=unfilled-entry[2]
+                    entry[2]=0
             return orders
 
 
@@ -230,17 +276,32 @@ class limit_market():
     
     
     
-        
+from random import uniform        
 
 
-T=2 #total time
-dt=1. #timeStep
-nDealers=2 #number of dealers 
-nNoiseCustomers=10 #number of noise customers 
-NoiseCustomerFrequencies=[2. for each in range(nNoiseCustomers)] #initial frequencies 2 trades per hour
-nInfCustomers=0 #number of informed customers
-InformedCustomerValues=0 #not applicable for no informed customers
+#T=2 #total time
+#dt=1. #timeStep
+#nDealers=2 #number of dealers 
+#nNoiseCustomers=10 #number of noise customers 
+#NoiseCustomerFrequencies=[2. for each in range(nNoiseCustomers)] #initial frequencies 2 trades per hour
+#nInfCustomers=0 #number of informed customers
+#InformedCustomerValues=0 #not applicable for no informed customers
+#EBS=limit_market()
+#connectivity=[] #haven't used yet in code
+#
+#simulation=environment(T,dt,nDealers,nNoiseCustomers,NoiseCustomerFrequencies,nInfCustomers,InformedCustomerValues,EBS,connectivity)
+
 EBS=limit_market()
-connectivity=[] #haven't used yet in code
+sink=sinkDealer(EBS) #sink dealer must be created before normal dealer because sink dealer can create a price without order book
+sink.label(2) #although created first, I think I have coded in such a way that only the first dealer will be assigned to customers
+                #therefore I have labeled sink as dealer 2
 
-simulation=environment(T,dt,nDealers,nNoiseCustomers,NoiseCustomerFrequencies,nInfCustomers,InformedCustomerValues,EBS,connectivity)
+sink.place_LO("bid",sink.cBid,1,1000)
+sink.place_LO("ask",sink.cAsk,1,1000)
+suraj=dealer(EBS)
+suraj.label(1)
+
+for i in range(10):
+    sink.place_LO("bid",sink.cBid-round(uniform(0,10),2),1+i,10)
+    sink.place_LO("ask",sink.cAsk+round(uniform(0,10),2),i+1,10)
+
