@@ -53,8 +53,26 @@ class environment:
 class book:
     def __init__(self):
         self.trades=[]
+        self.position=[0,0]
+        self.inventory=[0]
+        self.AOI=0 #age of inventory
     def addTrade(self,size,price,time,partnerID):
         self.trades.append([size,price,time,partnerID])
+        self.position[0]=self.position[0]+size*1000000.0
+        self.position[1]=self.position[1]-size*price*1000000.0
+    def process(self,current_t):
+        #add all customer trades in period to inventory
+        x=self.inventory[-1]
+        for item in self.trades:
+            if item[2]==current_t:
+                x=x+item[0]
+        self.inventory.append(x)
+        #inventory updated
+
+
+
+
+    
 
 class marketParticipant:
     def __init__(self,isCustomer):
@@ -76,8 +94,15 @@ class customer(marketParticipant):
         self.dealers=[]
     def assignDealer(self,dealer): ########################## THIS ONLY CAN ASSIGN ONE DEALER AT A TIME NeedEdit
             self.dealers.append(dealer)
-    #def order(!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!):
-     #   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    def order(self,buy_sell,volume,time):
+        if buy_sell=="buy":
+            self.dealers[0].make_trade(self,self.dealers[0].cAsk,-volume,time)
+        elif buy_sell=="sell":
+            self.dealers[0].make_trade(self,self.dealers[0].cBid,volume,time)
+        else:
+            print "not buy or sell noob"
+        #NeedEdit, currently only looks at one of potentially multiple dealers
+    
 
 class infCustomer(customer):
     def __init__(self):
@@ -96,20 +121,20 @@ class noiseCustomer(customer):
     def process(self,current_t):
         from random import uniform
         makeTrade=uniform(0,1)
-        if makeTrade<self.freq/60.:
+        if makeTrade<self.freq:
             if uniform(0,1)<0.5:
-                pass#will make a buy order
-                #self.order(!!!!!!!!!!!!!!NeedEdit!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!)
+                #will make a buy order
+                self.order("buy",1,current_t)
             else:
-                pass#will make a sell order   
-                #self.order(!!!!!!!!!!!!!!!!!!!!!!NeedEdit!!!!!!!!!!!!!!!!!!!!!!!!!!) 
+                self.order("sell",1,current_t)
+                
         else:
             pass #make no trade
 
 class dealer(marketParticipant):
     def __init__(self,limitOrderMkt):
         marketParticipant.__init__(self,False)
-        custSpread=2
+        custSpread=0.0002
         self.LOM=limitOrderMkt
         #customer spreads are same as market spreads plus small amount
         self.cBid=self.LOM.bids[0][0]-(custSpread/2.)
@@ -117,8 +142,17 @@ class dealer(marketParticipant):
     def make_trade(self,counterparty,price,size,time):
         self.tradeBook.addTrade(size,price,time,counterparty.ID)
         counterparty.tradeBook.addTrade(-size,price,time,self.ID)
-    def place_LO(self,bid_ask,price,time,volume):
+    def place_LO(self,bid_ask,price,volume,time):
         self.LOM.place_lim_order(bid_ask,price,time,volume,self)
+    def place_MO(self,buy_sell,volume,time):
+        self.LOM.place_market_order(buy_sell,volume,self,time)
+    def process(self,current_t):
+        #first review current situation by processing trade book
+        self.tradeBook.process(current_t)
+    def urgency(self,inventory):
+        u=inventory^2
+        #######!!!!!!!!!!!!!!!!!!!!START HERE        
+
 
 #NeedEdit this is a special type of dealer
 class sinkDealer(marketParticipant):
@@ -132,8 +166,10 @@ class sinkDealer(marketParticipant):
     def make_trade(self,counterparty,price,size,time):
         self.tradeBook.addTrade(size,price,time,counterparty.ID)
         counterparty.tradeBook.addTrade(-size,price,time,self.ID)
-    def place_LO(self,bid_ask,price,time,volume):
+    def place_LO(self,bid_ask,price,volume,time):
         self.LOM.place_lim_order(bid_ask,price,time,volume,self)
+    def place_MO(self,buy_sell,volume,time):
+        self.LOM.place_market_order(buy_sell,volume,self,time)
 
 class limit_market():
     def __init__(self):
@@ -187,96 +223,90 @@ class limit_market():
                         self.asks.append([price,time,volume,dealer.ID,self.current_orderID])
                         break
 
-    def decrease_volume(bid_or_ask,orderID,volume):
+    def decrease_volume(self,bid_or_ask,order,volume):
         if bid_or_ask=="bid":
-            for order in EBS.bids:
-                if order[4]==orderID:
-                    order[2]=order[2]-volume
-                    if order[2]==0:
-                        
-                    break
-                else:
-                    pass
+            position=self.bids.index(order)
+            self.bids[position][2]=self.bids[position][2]-volume
+            if self.bids[position][2]==0:
+                self.bids.pop(position)
         elif bid_or_ask=="ask":
-            for order in EBS.asks:
-                if order[4]==orderID:
-                    order[2]=order[2]-volume
-                    break
-                else:
-                    pass
+            position=self.asks.index(order)
+            self.asks[position][2]=self.asks[position][2]-volume
+            if self.asks[position][2]==0:
+                self.asks.pop(position)
+
+        else:
+            print "not bid or ask noob"
 
 
+    def find_dealer(self,dealerID):
+        for dealer in self.dealers:
+            if dealer.ID==dealerID:
+                return dealer
+                break
 
-        elif bid_or_ask=="ask":
 
 
     def find_orders(self,buy_sell,volume):
-        orders=[]
+        orders_vols=[]
         unfilled=volume
         if buy_sell=="buy":
             for entry in self.asks:
                 depth=entry[2]
                 if depth>=unfilled:
-                    orders.append(entry[4])
-                    entry[2]=entry[2]-unfilled
+                    orderID=entry
+                    orderVolume=unfilled
+                    orders_vols.append([orderID,orderVolume])
                     unfilled=0
                     break
                 elif depth<unfilled:
-                    orders.append(entry[4])
+                    orderID=entry
+                    orderVolume=entry[2]
+                    orders_vols.append([orderID,orderVolume])
                     unfilled=unfilled-entry[2]
-                    entry[2]=0
-            return orders
+            return orders_vols
 
 
 
         elif buy_sell=="sell":
-            pass
+            for entry in self.bids:
+                depth=entry[2]
+                if depth>=unfilled:
+                    orderID=entry
+                    orderVolume=unfilled
+                    orders_vols.append([orderID,orderVolume])
+                    unfilled=0
+                    break
+                elif depth<unfilled:
+                    orderID=entry
+                    orderVolume=entry[2]
+                    orders_vols.append([orderID,orderVolume])
+                    unfilled=unfilled-entry[2]
+            return orders_vols
         else:
             print "error not buy or sell noob"
 
     def place_market_order(self,buy_sell,volume,customer,current_t):
+        orderIDs_and_volumes=self.find_orders(buy_sell,volume)
         if buy_sell=="buy":
-            if volume<self.asks[0][2]:
-                self.asks[0][2]=self.asks[0][2]-volume
-                for dealer in self.dealers:
-                    if dealer.ID==self.asks[0][3]:
-                        counterparty=dealer
-                        break
-                    else:
-                        pass
-                customer.make_trade(counterparty,self.asks[0][0],volume,current_t)
-            else:
-                #what to do if order is larger than limit order at best price
-                #this shouldn't currently be an issue but NeedEdit
-                pass
+            bid_ask="ask"
+            position_direction=-1.0
         elif buy_sell=="sell":
-            if volume<self.bids[0][2]:
-                self.bids[0][2]=self.bids[0][2]-volume
-                for dealer in self.dealers:
-                    if dealer.ID==self.bids[0][3]:
-                        counterparty=dealer
-                        break
-                    else:
-                        pass
-                customer.make_trade(counterparty,self.bids[0][0],volume,current_t)
-            else:
-                #what to do if order is larger than limit order at best price
-                #this shouldn't currently be an issue but NeedEdit
-                pass
+            bid_ask="bid"
+            position_direction=1.0
+        else:
+            print "not buy or sell noob"
 
-
-
-
-
-
+        for item in orderIDs_and_volumes:
+            dealer=self.find_dealer(item[0][3])
+            dealer.make_trade(customer,item[0][0],position_direction*item[1],current_t)
+            self.decrease_volume(bid_ask,item[0],item[1])
+ 
  
 
 
 
-    
-    
-    
-from random import uniform        
+        
 
 
 #T=2 #total time
@@ -288,20 +318,89 @@ from random import uniform
 #InformedCustomerValues=0 #not applicable for no informed customers
 #EBS=limit_market()
 #connectivity=[] #haven't used yet in code
-#
+
 #simulation=environment(T,dt,nDealers,nNoiseCustomers,NoiseCustomerFrequencies,nInfCustomers,InformedCustomerValues,EBS,connectivity)
 
-EBS=limit_market()
-sink=sinkDealer(EBS) #sink dealer must be created before normal dealer because sink dealer can create a price without order book
-sink.label(2) #although created first, I think I have coded in such a way that only the first dealer will be assigned to customers
+#EBS=limit_market()
+#sink=sinkDealer(EBS) #sink dealer must be created before normal dealer because sink dealer can create a price without order book
+#sink.label(2) #although created first, I think I have coded in such a way that only the first dealer will be assigned to customers
                 #therefore I have labeled sink as dealer 2
 
-sink.place_LO("bid",sink.cBid,1,1000)
-sink.place_LO("ask",sink.cAsk,1,1000)
-suraj=dealer(EBS)
-suraj.label(1)
 
-for i in range(10):
-    sink.place_LO("bid",sink.cBid-round(uniform(0,10),2),1+i,10)
-    sink.place_LO("ask",sink.cAsk+round(uniform(0,10),2),i+1,10)
+
+#for i in range(10):
+#    sink.place_LO("bid",sink.cBid-i,1+i,10)
+#    sink.place_LO("ask",sink.cAsk+i,i+1,10)
+    #sink.place_LO("bid",sink.cBid-round(uniform(0,10),2),1+i,10)
+    #sink.place_LO("ask",sink.cAsk+round(uniform(0,10),2),i+1,10)
+
+#suraj=dealer(EBS)
+#suraj.label(1)
+#EBS.add_dealers([suraj,sink])
+
+from random import uniform
+import matplotlib.pyplot as plt
+import numpy as np
+
+current_t=0.
+total_T=1
+dt=1/3600. #1second in hours
+nCustomers=10
+frequencies=1
+nSteps=int(total_T/dt)
+tArray=np.linspace(0,total_T,nSteps+1)
+
+initial_price=1.0000
+customers1=[noiseCustomer() for i in range(nCustomers)]
+customers2=[noiseCustomer() for i in range(nCustomers)]
+EBS=limit_market()
+sink=sinkDealer(EBS)
+sink.label(2)
+sink.place_LO("bid",initial_price-0.0001,100,current_t)
+sink.place_LO("ask",initial_price+0.0001,100,current_t)
+dealer1=dealer(EBS)
+dealer2=dealer(EBS)
+dealer1.label(0)
+dealer2.label(1)
+
+EBS.add_dealers([dealer1,dealer2,sink])
+
+
+for each in customers1:
+    each.label(customers1.index(each))
+    each.assignDealer(dealer1)
+    each.setFreq(frequencies,dt)
+for each in customers2:
+    each.label(len(customers1)+customers2.index(each))
+    each.assignDealer(dealer2)
+    each.setFreq(frequencies,dt)
+
+
+current_t=0
+for t in range(0,nSteps):
+    current_t=current_t+dt
+    for each in customers1:
+        each.process(current_t)
+    for each in customers2:
+        each.process(current_t)
+    if uniform(0,1)<0.5:
+        dealer1.process(current_t)
+        dealer2.process(current_t)
+    else:
+        dealer2.process(current_t)
+        dealer1.process(current_t)
+    
+
+    
+#plotting outputs
+
+fig,ax=plt.subplots()
+ax.plot(tArray,dealer1.tradeBook.inventory,tArray,dealer2.tradeBook.inventory,lw=2)
+plt.grid(True)
+ayMax=max([abs(i) for i in dealer1.tradeBook.inventory])
+byMax=max([abs(i) for i in dealer2.tradeBook.inventory])
+trueyMax=max([ayMax,byMax])
+plt.ylim([-trueyMax-1,trueyMax+1])
+
+plt.show()
 
